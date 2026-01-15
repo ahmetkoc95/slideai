@@ -242,3 +242,4 @@ Need help? Check out:
 ---
 
 **Built with ❤️ using Next.js, TypeScript, and AI**
+# slideai
