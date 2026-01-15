@@ -19,10 +19,13 @@ const generateSlidesSchema = z.object({
 
 // POST /api/ai/generate-slides - Generate full slides from user input
 export async function POST(request: NextRequest) {
+  console.log("[generate-slides] Starting request...");
+  
   try {
     const session = await auth();
 
     if (!session?.user?.id) {
+      console.log("[generate-slides] Unauthorized - no session");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -30,6 +33,7 @@ export async function POST(request: NextRequest) {
     const validation = generateSlidesSchema.safeParse(body);
 
     if (!validation.success) {
+      console.log("[generate-slides] Validation failed:", validation.error);
       return NextResponse.json(
         { error: validation.error.issues[0].message },
         { status: 400 }
@@ -37,6 +41,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { presentationId, userInput } = validation.data;
+    console.log("[generate-slides] Processing for presentation:", presentationId);
+    console.log("[generate-slides] User input text length:", userInput.text?.length || 0);
 
     // Verify presentation access
     const presentation = await prisma.presentation.findFirst({
@@ -54,14 +60,17 @@ export async function POST(request: NextRequest) {
     });
 
     if (!presentation) {
+      console.log("[generate-slides] Presentation not found:", presentationId);
       return NextResponse.json(
         { error: "Presentation not found or access denied" },
         { status: 404 }
       );
     }
 
+    console.log("[generate-slides] Calling DeepSeek API...");
     // Analyze content with DeepSeek
     const processedContent = await analyzeAndEnhanceContent(userInput);
+    console.log("[generate-slides] DeepSeek returned", processedContent.slides?.length || 0, "slides");
 
     // Generate slides with backgrounds
     const slidesData = await Promise.all(

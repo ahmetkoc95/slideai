@@ -16,26 +16,43 @@ interface DeepSeekResponse {
 }
 
 async function callDeepSeek(messages: DeepSeekMessage[]): Promise<string> {
-  const response = await fetch(DEEPSEEK_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "deepseek-chat",
-      messages,
-      temperature: 0.7,
-      max_tokens: 4096,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`DeepSeek API error: ${response.statusText}`);
+  console.log("[DeepSeek] Starting API call...");
+  
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.error("[DeepSeek] API key is missing!");
+    throw new Error("DEEPSEEK_API_KEY is not configured");
   }
 
-  const data: DeepSeekResponse = await response.json();
-  return data.choices[0]?.message?.content || "";
+  try {
+    const response = await fetch(DEEPSEEK_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+      }),
+    });
+
+    console.log("[DeepSeek] Response status:", response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[DeepSeek] API error:", response.status, errorText);
+      throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
+    }
+
+    const data: DeepSeekResponse = await response.json();
+    console.log("[DeepSeek] API call successful, got response");
+    return data.choices[0]?.message?.content || "";
+  } catch (error) {
+    console.error("[DeepSeek] Fetch error:", error);
+    throw error;
+  }
 }
 
 export async function analyzeAndEnhanceContent(
