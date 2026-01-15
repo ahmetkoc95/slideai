@@ -1,0 +1,131 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  password      String?
+  accounts      Account[]
+  sessions      Session[]
+  presentations Presentation[]
+  collaborations PresentationCollaborator[]
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Presentation {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  thumbnail     String?
+  theme         Json     @default("{\"primaryColor\": \"#3b82f6\", \"secondaryColor\": \"#1e40af\", \"fontFamily\": \"Inter\"}")
+  slides        Slide[]
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId       String   @map("owner_id")
+  collaborators PresentationCollaborator[]
+  isPublic      Boolean  @default(false) @map("is_public")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("presentations")
+}
+
+model PresentationCollaborator {
+  id             String       @id @default(cuid())
+  presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  presentationId String       @map("presentation_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id")
+  role           String       @default("editor") // editor, viewer
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@unique([presentationId, userId])
+  @@map("presentation_collaborators")
+}
+
+model Slide {
+  id             String       @id @default(cuid())
+  title          String
+  content        Json         // Structured slide content (text blocks, elements)
+  notes          String?      @db.Text
+  backgroundUrl  String?      @map("background_url")
+  backgroundColor String?     @map("background_color")
+  templateId     String?      @map("template_id")
+  template       Template?    @relation(fields: [templateId], references: [id])
+  order          Int
+  transition     String       @default("fade") // fade, slide, zoom, flip
+  presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  presentationId String       @map("presentation_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("slides")
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  thumbnail   String?
+  layout      Json     // CSS Grid/Flexbox layout definition
+  theme       Json     // Color scheme, typography
+  category    String   @default("general") // general, business, creative, minimal
+  isActive    Boolean  @default(true) @map("is_active")
+  slides      Slide[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("templates")
+}

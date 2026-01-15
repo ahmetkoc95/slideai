@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npm run vercel-build",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "ENABLE_SOCKET": "false"
+  },
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "maxDuration": 30
+    }
+  }
+}
