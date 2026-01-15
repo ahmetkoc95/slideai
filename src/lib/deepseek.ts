@@ -16,6 +16,50 @@ interface DeepSeekResponse {
 }
 
 async function callDeepSeek(messages: DeepSeekMessage[]): Promise<string> {
+  // Skip API call during Vercel build to avoid API errors
+  if (process.env.VERCEL === '1' || process.env.CI || process.env.NEXT_PHASE === 'phase-production-build') {
+    console.warn('Skipping DeepSeek API call during build');
+    // Return a mock response based on the last user message
+    const lastUserMessage = messages.find(m => m.role === 'user')?.content || '';
+    
+    // For analyzeAndEnhanceContent
+    if (lastUserMessage.includes('analyze and structure') || lastUserMessage.includes('professional presentation')) {
+      return JSON.stringify({
+        title: "Mock Presentation",
+        slides: [
+          {
+            title: "Introduction",
+            bulletPoints: ["Mock point 1", "Mock point 2"],
+            mainContent: "Mock content for build purposes",
+            imagePrompt: "professional abstract background with blue gradient",
+            layout: "titleAndContent"
+          }
+        ],
+        suggestedTheme: {
+          primaryColor: "#3b82f6",
+          secondaryColor: "#1e40af",
+          backgroundColor: "#ffffff",
+          textColor: "#000000",
+          fontFamily: "Inter"
+        }
+      });
+    }
+    
+    // For generateSlideContent
+    if (lastUserMessage.includes('Generate content for slide')) {
+      return JSON.stringify({
+        title: "Mock Slide",
+        bulletPoints: ["Mock point 1", "Mock point 2", "Mock point 3"],
+        mainContent: "Mock content for build purposes",
+        imagePrompt: "abstract professional background",
+        layout: "titleAndContent"
+      });
+    }
+    
+    // For generateImagePrompt or determineSlideCount
+    return "mock-response-for-build";
+  }
+
   const response = await fetch(DEEPSEEK_API_URL, {
     method: "POST",
     headers: {

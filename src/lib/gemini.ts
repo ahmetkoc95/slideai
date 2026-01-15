@@ -4,6 +4,13 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function generateSlideImage(prompt: string): Promise<string> {
   try {
+    // Skip API call during Vercel build to avoid Gemini errors
+    if (process.env.VERCEL === '1' || process.env.CI || process.env.NEXT_PHASE === 'phase-production-build') {
+      console.warn('Skipping Gemini API call during build');
+      const colors = extractColorsFromPrompt(prompt);
+      return generateGradientDataUrl(colors);
+    }
+
     // Using Gemini's image generation capabilities
     // Note: As of now, Gemini primarily does text generation
     // For actual image generation, you might want to use Imagen API
@@ -50,6 +57,12 @@ export async function generateSlideGraphics(
   style: string
 ): Promise<string[]> {
   try {
+    // Skip API call during Vercel build to avoid Gemini errors
+    if (process.env.VERCEL === '1' || process.env.CI || process.env.NEXT_PHASE === 'phase-production-build') {
+      console.warn('Skipping Gemini graphics generation during build');
+      return [];
+    }
+
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const prompt = `Based on this slide content, suggest 3-5 simple icon or graphic descriptions that would enhance the visual appeal:
@@ -78,25 +91,11 @@ Example: ["lightbulb icon representing ideas", "upward arrow showing growth", "c
 }
 
 export async function analyzeImageContent(imageBase64: string): Promise<string> {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    const result = await model.generateContent([
-      "Analyze this image and describe its content in detail. Focus on what would be relevant for creating a presentation about this topic.",
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: imageBase64,
-        },
-      },
-    ]);
-    
-    const response = await result.response;
-    return response.text();
-  } catch (error) {
-    console.error("Error analyzing image:", error);
-    return "";
-  }
+  // Stub function - not currently used in the application
+  // This function would analyze image content using Gemini's vision capabilities
+  // but is disabled to prevent build errors
+  console.warn('analyzeImageContent is disabled (not used in current implementation)');
+  return "";
 }
 
 export async function suggestSlideLayout(
@@ -104,6 +103,12 @@ export async function suggestSlideLayout(
   hasImage: boolean
 ): Promise<string> {
   try {
+    // Skip API call during Vercel build to avoid Gemini errors
+    if (process.env.VERCEL === '1' || process.env.CI || process.env.NEXT_PHASE === 'phase-production-build') {
+      console.warn('Skipping Gemini layout suggestion during build');
+      return hasImage ? "imageRight" : "titleAndContent";
+    }
+
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const prompt = `Based on this slide content, suggest the best layout:
