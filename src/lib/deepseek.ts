@@ -58,46 +58,62 @@ async function callDeepSeek(messages: DeepSeekMessage[]): Promise<string> {
 export async function analyzeAndEnhanceContent(
   input: UserInput
 ): Promise<ProcessedContent> {
-  const systemPrompt = `You are an expert presentation designer and content strategist. Your task is to analyze raw user input and transform it into a well-structured, professional presentation outline.
+  const systemPrompt = `You are an expert presentation designer and storytelling strategist. Transform user input into a visually stunning, content-rich presentation.
 
-Guidelines:
-1. Create clear, concise slide titles
-2. Organize content logically with a clear narrative flow
-3. Suggest appropriate layouts for each slide
-4. Generate image prompts for visuals that would enhance each slide
-5. Keep bullet points brief and impactful
-6. Ensure the presentation has a strong opening and closing
+CRITICAL REQUIREMENTS:
+1. Create ENGAGING slide titles that tell a story (not generic titles)
+2. Each slide MUST have BOTH:
+   - "mainContent": A detailed paragraph (50-100 words) explaining the concept with context, examples, or insights
+   - "bulletPoints": 3-5 key takeaways (each 8-15 words, NOT just 3-4 words)
+3. Use VARIED slide types:
+   - First slide: "title" layout (presentation title + subtitle)
+   - Middle slides: Mix of "titleAndContent", "imageLeft", "imageRight" layouts
+   - Last slide: Summary/conclusion with key takeaways
+4. Generate VIVID image search keywords for each slide (for finding relevant photos)
+5. Create a cohesive narrative flow from introduction to conclusion
 
-Return your response as a valid JSON object with this exact structure:
+SLIDE TYPES TO USE:
+- "title": Opening slide with big title and subtitle
+- "titleAndContent": Main content slides with paragraph + bullets
+- "imageLeft"/"imageRight": Visual slides where image is prominent
+- "fullImage": Impactful visual-only slides for transitions
+
+Return JSON with this EXACT structure:
 {
-  "title": "Presentation Title",
+  "title": "Compelling Presentation Title",
   "slides": [
     {
-      "title": "Slide Title",
-      "bulletPoints": ["Point 1", "Point 2"],
-      "mainContent": "Optional longer text content",
-      "imagePrompt": "Descriptive prompt for background/image generation",
-      "layout": "title|titleAndContent|twoColumn|imageLeft|imageRight|fullImage"
+      "title": "Engaging Slide Title",
+      "subtitle": "Optional subtitle for title slides",
+      "mainContent": "A detailed paragraph (50-100 words) that explains the concept, provides context, uses examples or analogies, and engages the audience. This should NOT be empty.",
+      "bulletPoints": ["Key takeaway with enough detail to be meaningful (8-15 words)", "Another detailed point", "Third important point"],
+      "imageKeywords": "specific, relevant, photo search terms",
+      "layout": "titleAndContent"
     }
   ],
   "suggestedTheme": {
-    "primaryColor": "#hex",
-    "secondaryColor": "#hex",
-    "backgroundColor": "#hex",
-    "textColor": "#hex",
-    "fontFamily": "Font Name"
+    "primaryColor": "#hex (vibrant, topic-appropriate)",
+    "secondaryColor": "#hex (complementary)",
+    "backgroundColor": "#1a1a2e (dark for contrast)",
+    "textColor": "#ffffff",
+    "fontFamily": "Inter"
   }
 }`;
 
-  const userContent = `Please analyze and structure the following content for a professional presentation:
+  const userContent = `Create a STUNNING, CONTENT-RICH presentation about:
 
 ${input.text || "No text provided"}
 
-${input.links?.length ? `Referenced URLs: ${input.links.join(", ")}` : ""}
+${input.links?.length ? `Reference these URLs for additional context: ${input.links.join(", ")}` : ""}
 
-${input.images?.length ? `Number of images provided: ${input.images.length}` : ""}
+${input.images?.length ? `Include ${input.images.length} user-provided images` : ""}
 
-Create a compelling presentation structure with appropriate slides, layouts, and image prompts for each slide.`;
+IMPORTANT:
+- Generate 6-10 slides with DETAILED content (not bullet points only)
+- Each slide needs a PARAGRAPH of explanation (50-100 words) PLUS bullet points
+- Make it visually engaging with varied layouts
+- Include specific image search keywords for each slide
+- Tell a compelling story from start to finish`;
 
   const response = await callDeepSeek([
     { role: "system", content: systemPrompt },

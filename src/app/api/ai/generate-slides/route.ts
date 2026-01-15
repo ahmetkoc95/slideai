@@ -3,9 +3,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { analyzeAndEnhanceContent } from "@/lib/deepseek";
 import { generateSlideImage } from "@/lib/gemini";
+import { searchUnsplashPhoto, generateImageKeywords } from "@/lib/unsplash";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
-import { SlideContent, TextBlock } from "@/types";
+import { SlideContent, TextBlock, ProcessedSlide } from "@/types";
 
 const generateSlidesSchema = z.object({
   presentationId: z.string(),
@@ -74,72 +75,117 @@ export async function POST(request: NextRequest) {
 
     // Generate slides with backgrounds
     const slidesData = await Promise.all(
-      processedContent.slides.map(async (slideData, index) => {
-        // Generate background image
+      processedContent.slides.map(async (slideData: ProcessedSlide, index: number) => {
+        // Generate background image - try Unsplash first, then Gemini gradient
         let backgroundUrl = null;
-        if (slideData.imagePrompt) {
+        
+        // Get image keywords from DeepSeek response or generate from content
+        const imageKeywords = slideData.imageKeywords || 
+          generateImageKeywords(slideData.title, slideData.mainContent || "");
+        
+        console.log(`[generate-slides] Slide ${index + 1}: Getting background for "${imageKeywords}"`);
+        
+        // Try Unsplash first for real photos
+        try {
+          backgroundUrl = await searchUnsplashPhoto(imageKeywords);
+        } catch (error) {
+          console.log("[generate-slides] Unsplash failed, trying Gemini gradient");
+        }
+        
+        // Fallback to Gemini gradient if Unsplash didn't work
+        if (!backgroundUrl && slideData.imagePrompt) {
           try {
             backgroundUrl = await generateSlideImage(slideData.imagePrompt);
           } catch (error) {
-            console.error("Failed to generate image for slide:", error);
+            console.error("Failed to generate gradient for slide:", error);
           }
         }
 
-        // Create slide content structure
+        // Create slide content structure based on layout type
         const elements: TextBlock[] = [];
+        const isTitle = slideData.layout === "title";
+        const theme = processedContent.suggestedTheme;
 
-        // Title element
+        // Title element - larger for title slides
         elements.push({
           id: uuidv4(),
           type: "text",
           content: slideData.title,
-          x: 5,
-          y: 10,
-          width: 90,
-          height: 15,
-          fontSize: 36,
+          x: isTitle ? 10 : 5,
+          y: isTitle ? 35 : 8,
+          width: isTitle ? 80 : 90,
+          height: isTitle ? 20 : 12,
+          fontSize: isTitle ? 48 : 32,
           fontWeight: "bold",
-          fontFamily: processedContent.suggestedTheme?.fontFamily || "Inter",
-          color: processedContent.suggestedTheme?.textColor || "#ffffff",
-          textAlign: "left",
+          fontFamily: theme?.fontFamily || "Inter",
+          color: theme?.textColor || "#ffffff",
+          textAlign: isTitle ? "center" : "left",
           animation: "fadeInDown",
         });
 
-        // Bullet points or main content
-        if (slideData.bulletPoints?.length) {
-          slideData.bulletPoints.forEach((point, bulletIndex) => {
-            elements.push({
-              id: uuidv4(),
-              type: "text",
-              content: `• ${point}`,
-              x: 5,
-              y: 30 + bulletIndex * 12,
-              width: 90,
-              height: 10,
-              fontSize: 24,
-              fontWeight: "normal",
-              fontFamily: processedContent.suggestedTheme?.fontFamily || "Inter",
-              color: processedContent.suggestedTheme?.textColor || "#ffffff",
-              textAlign: "left",
-              animation: "fadeInUp",
-            });
-          });
-        } else if (slideData.mainContent) {
+        // Subtitle for title slides
+        if (isTitle && slideData.subtitle) {
           elements.push({
             id: uuidv4(),
             type: "text",
-            content: slideData.mainContent,
-            x: 5,
-            y: 30,
-            width: 90,
-            height: 50,
-            fontSize: 20,
+            content: slideData.subtitle,
+            x: 10,
+            y: 55,
+            width: 80,
+            height: 10,
+            fontSize: 24,
             fontWeight: "normal",
-            fontFamily: processedContent.suggestedTheme?.fontFamily || "Inter",
-            color: processedContent.suggestedTheme?.textColor || "#ffffff",
-            textAlign: "left",
+            fontFamily: theme?.fontFamily || "Inter",
+            color: theme?.textColor || "#ffffff",
+            textAlign: "center",
             animation: "fadeIn",
           });
+        }
+
+        // For non-title slides: Add BOTH main content AND bullet points
+        if (!isTitle) {
+          let currentY = 22;
+
+          // Main content paragraph (if exists)
+          if (slideData.mainContent) {
+            elements.push({
+              id: uuidv4(),
+              type: "text",
+              content: slideData.mainContent,
+              x: 5,
+              y: currentY,
+              width: 90,
+              height: 25,
+              fontSize: 18,
+              fontWeight: "normal",
+              fontFamily: theme?.fontFamily || "Inter",
+              color: theme?.textColor || "#ffffff",
+              textAlign: "left",
+              animation: "fadeIn",
+            });
+            currentY += 28; // Move down after paragraph
+          }
+
+          // Bullet points (if exist)
+          if (slideData.bulletPoints?.length) {
+            slideData.bulletPoints.forEach((point, bulletIndex) => {
+              elements.push({
+                id: uuidv4(),
+                type: "text",
+                content: `• ${point}`,
+                x: 5,
+                y: currentY + bulletIndex * 10,
+                width: 90,
+                height: 8,
+                fontSize: 20,
+                fontWeight: "normal",
+                fontFamily: theme?.fontFamily || "Inter",
+                color: theme?.textColor || "#ffffff",
+                textAlign: "left",
+                animation: "fadeInUp",
+              });
+            });
+          }
         }
 
         const content: SlideContent = { elements };
@@ -148,8 +194,7 @@ export async function POST(request: NextRequest) {
           title: slideData.title,
           content,
           backgroundUrl,
-          backgroundColor:
-            processedContent.suggestedTheme?.backgroundColor || "#1e40af",
+          backgroundColor: theme?.backgroundColor || "#1a1a2e",
           order: index,
           transition: index === 0 ? "fade" : "slide",
         };

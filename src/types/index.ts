@@ -103,9 +103,11 @@ export interface ProcessedContent {
 
 export interface ProcessedSlide {
   title: string;
+  subtitle?: string;
   bulletPoints?: string[];
   mainContent?: string;
   imagePrompt?: string;
+  imageKeywords?: string;
   layout: "title" | "titleAndContent" | "twoColumn" | "imageLeft" | "imageRight" | "fullImage";
 }
 
