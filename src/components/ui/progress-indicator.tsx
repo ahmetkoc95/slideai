@@ -88,10 +88,13 @@ export function ProgressIndicator({
 
               {step.step === 4 && step.status === 'processing' && currentSlide && totalSlides && (
                 <div className="mt-2 space-y-2">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm font-medium text-blue-600">
                     Processing slide {currentSlide} of {totalSlides}
                   </p>
                   <ProgressBar value={percentage} animated={true} />
+                  <p className="text-xs text-gray-500">
+                    {totalSlides - currentSlide} {totalSlides - currentSlide === 1 ? 'slide' : 'slides'} remaining
+                  </p>
                 </div>
               )}
 

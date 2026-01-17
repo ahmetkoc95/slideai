@@ -83,134 +83,159 @@ export async function POST(request: NextRequest) {
 
     updateProgress(presentationId, 3, "Creating visual elements...");
 
-    const slidesData = await Promise.all(
-      processedContent.slides.map(async (slideData: ProcessedSlide, index: number) => {
-        // Generate background image - try Unsplash first, then Gemini gradient
-        let backgroundUrl = null;
-        
-        // Get image keywords from DeepSeek response or generate from content
-        const imageKeywords = slideData.imageKeywords ||
-          generateImageKeywords(slideData.title, slideData.mainContent || "");
+    console.log(`[generate-slides] Starting sequential processing of ${processedContent.slides?.length || 0} slides`);
 
-        updateProgress(presentationId, 4, "Fetching images for each slide...", { currentSlide: index + 1, totalSlides: processedContent.slides?.length });
+    const slidesData = [];
+    const slideTimings: Array<{ slide: number; unsplash: number; gemini: number; total: number }> = [];
 
-        console.log(`[generate-slides] Slide ${index + 1}: Getting background for "${imageKeywords}"`);
-        
-        // Try Unsplash first for real photos
+    for (const [index, slideData] of (processedContent.slides || []).entries()) {
+      const slideStartTime = Date.now();
+      console.log(`[generate-slides] Processing slide ${index + 1}/${processedContent.slides?.length}`);
+
+      // Generate background image - try Unsplash first, then Gemini gradient
+      let backgroundUrl = null;
+
+      // Get image keywords from DeepSeek response or generate from content
+      const imageKeywords = slideData.imageKeywords ||
+        generateImageKeywords(slideData.title, slideData.mainContent || "");
+
+      updateProgress(presentationId, 4, "Fetching images for each slide...", { currentSlide: index + 1, totalSlides: processedContent.slides?.length });
+
+      console.log(`[generate-slides] Slide ${index + 1}: Getting background for "${imageKeywords}"`);
+
+      const unsplashStart = Date.now();
+      // Try Unsplash first for real photos
+      try {
+        backgroundUrl = await searchUnsplashPhoto(imageKeywords);
+        const unsplashDuration = Date.now() - unsplashStart;
+        console.log(`[generate-slides] Slide ${index + 1}: Unsplash completed in ${unsplashDuration}ms`);
+        slideTimings.push({ slide: index + 1, unsplash: unsplashDuration, gemini: 0, total: 0 });
+      } catch (error) {
+        const unsplashDuration = Date.now() - unsplashStart;
+        console.log(`[generate-slides] Slide ${index + 1}: Unsplash failed in ${unsplashDuration}ms, trying Gemini gradient`);
+        slideTimings.push({ slide: index + 1, unsplash: unsplashDuration, gemini: 0, total: 0 });
+      }
+
+      const geminiStart = Date.now();
+      // Fallback to Gemini gradient if Unsplash didn't work
+      if (!backgroundUrl && slideData.imagePrompt) {
         try {
-          backgroundUrl = await searchUnsplashPhoto(imageKeywords);
+          backgroundUrl = await generateSlideImage(slideData.imagePrompt);
+          const geminiDuration = Date.now() - geminiStart;
+          console.log(`[generate-slides] Slide ${index + 1}: Gemini fallback completed in ${geminiDuration}ms`);
+          slideTimings[slideTimings.length - 1].gemini = geminiDuration;
         } catch (error) {
-          console.log("[generate-slides] Unsplash failed, trying Gemini gradient");
+          const geminiDuration = Date.now() - geminiStart;
+          console.error(`[generate-slides] Slide ${index + 1}: Gemini failed in ${geminiDuration}ms`, error);
+          slideTimings[slideTimings.length - 1].gemini = geminiDuration;
         }
-        
-        // Fallback to Gemini gradient if Unsplash didn't work
-        if (!backgroundUrl && slideData.imagePrompt) {
-          try {
-            backgroundUrl = await generateSlideImage(slideData.imagePrompt);
-          } catch (error) {
-            console.error("Failed to generate gradient for slide:", error);
-          }
-        }
+      }
 
-        // Create slide content structure based on layout type
-        const elements: TextBlock[] = [];
-        const isTitle = slideData.layout === "title";
-        const theme = processedContent.suggestedTheme;
+      // Create slide content structure based on layout type
+      const elements: TextBlock[] = [];
+      const isTitle = slideData.layout === "title";
+      const theme = processedContent.suggestedTheme;
 
-        // Title element - larger for title slides
+      // Title element - larger for title slides
+      elements.push({
+        id: uuidv4(),
+        type: "text",
+        content: slideData.title,
+        x: isTitle ? 10 : 5,
+        y: isTitle ? 35 : 8,
+        width: isTitle ? 80 : 90,
+        height: isTitle ? 20 : 12,
+        fontSize: isTitle ? 48 : 32,
+        fontWeight: "bold",
+        fontFamily: theme?.fontFamily || "Inter",
+        color: theme?.textColor || "#ffffff",
+        textAlign: isTitle ? "center" : "left",
+        animation: "fadeInDown",
+      });
+
+      // Subtitle for title slides
+      if (isTitle && slideData.subtitle) {
         elements.push({
           id: uuidv4(),
           type: "text",
-          content: slideData.title,
-          x: isTitle ? 10 : 5,
-          y: isTitle ? 35 : 8,
-          width: isTitle ? 80 : 90,
-          height: isTitle ? 20 : 12,
-          fontSize: isTitle ? 48 : 32,
-          fontWeight: "bold",
+          content: slideData.subtitle,
+          x: 10,
+          y: 55,
+          width: 80,
+          height: 10,
+          fontSize: 24,
+          fontWeight: "normal",
           fontFamily: theme?.fontFamily || "Inter",
           color: theme?.textColor || "#ffffff",
-          textAlign: isTitle ? "center" : "left",
-          animation: "fadeInDown",
+          textAlign: "center",
+          animation: "fadeIn",
         });
+      }
 
-        // Subtitle for title slides
-        if (isTitle && slideData.subtitle) {
+      // For non-title slides: Add BOTH main content AND bullet points
+      if (!isTitle) {
+        let currentY = 22;
+
+        // Main content paragraph (if exists)
+        if (slideData.mainContent) {
           elements.push({
             id: uuidv4(),
             type: "text",
-            content: slideData.subtitle,
-            x: 10,
-            y: 55,
-            width: 80,
-            height: 10,
-            fontSize: 24,
+            content: slideData.mainContent,
+            x: 5,
+            y: currentY,
+            width: 90,
+            height: 25,
+            fontSize: 18,
             fontWeight: "normal",
             fontFamily: theme?.fontFamily || "Inter",
             color: theme?.textColor || "#ffffff",
-            textAlign: "center",
+            textAlign: "left",
             animation: "fadeIn",
           });
+          currentY += 28; // Move down after paragraph
         }
 
-        // For non-title slides: Add BOTH main content AND bullet points
-        if (!isTitle) {
-          let currentY = 22;
-
-          // Main content paragraph (if exists)
-          if (slideData.mainContent) {
+        // Bullet points (if exist)
+        if (slideData.bulletPoints?.length) {
+          slideData.bulletPoints.forEach((point, bulletIndex) => {
             elements.push({
               id: uuidv4(),
               type: "text",
-              content: slideData.mainContent,
+              content: `• ${point}`,
               x: 5,
-              y: currentY,
+              y: currentY + bulletIndex * 10,
               width: 90,
-              height: 25,
-              fontSize: 18,
+              height: 8,
+              fontSize: 20,
               fontWeight: "normal",
               fontFamily: theme?.fontFamily || "Inter",
               color: theme?.textColor || "#ffffff",
               textAlign: "left",
-              animation: "fadeIn",
+              animation: "fadeInUp",
             });
-            currentY += 28; // Move down after paragraph
-          }
-
-          // Bullet points (if exist)
-          if (slideData.bulletPoints?.length) {
-            slideData.bulletPoints.forEach((point, bulletIndex) => {
-              elements.push({
-                id: uuidv4(),
-                type: "text",
-                content: `• ${point}`,
-                x: 5,
-                y: currentY + bulletIndex * 10,
-                width: 90,
-                height: 8,
-                fontSize: 20,
-                fontWeight: "normal",
-                fontFamily: theme?.fontFamily || "Inter",
-                color: theme?.textColor || "#ffffff",
-                textAlign: "left",
-                animation: "fadeInUp",
-              });
-            });
-          }
+          });
         }
+      }
 
-        const content: SlideContent = { elements };
+      const content: SlideContent = { elements };
 
-        return {
-          title: slideData.title,
-          content,
-          backgroundUrl,
-          backgroundColor: theme?.backgroundColor || "#1a1a2e",
-          order: index,
-          transition: index === 0 ? "fade" : "slide",
-        };
-      })
-    );
+      const slideDuration = Date.now() - slideStartTime;
+      slideTimings[slideTimings.length - 1].total = slideDuration;
+      console.log(`[generate-slides] Slide ${index + 1}: Total time ${slideDuration}ms`);
+
+      slidesData.push({
+        title: slideData.title,
+        content,
+        backgroundUrl,
+        backgroundColor: theme?.backgroundColor || "#1a1a2e",
+        order: index,
+        transition: index === 0 ? "fade" : "slide",
+      });
+    }
+
+    console.log("[generate-slides] Slide timing summary:", slideTimings);
+    console.log(`[generate-slides] Completed all ${slidesData.length} slides in sequential mode`);
 
     updateProgress(presentationId, 5, "Saving slides to database...");
 
