@@ -7,6 +7,7 @@ import { searchUnsplashPhoto, generateImageKeywords } from "@/lib/unsplash";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import { SlideContent, TextBlock, ProcessedSlide } from "@/types";
+import { startProgress, updateProgress, completeProgress, failProgress } from "@/lib/progress-tracker";
 
 const generateSlidesSchema = z.object({
   presentationId: z.string(),
@@ -21,8 +22,13 @@ const generateSlidesSchema = z.object({
 // POST /api/ai/generate-slides - Generate full slides from user input
 export async function POST(request: NextRequest) {
   console.log("[generate-slides] Starting request...");
-  
+
+  let progressPresentationId: string | null = null;
+
   try {
+    const body = await request.json();
+    progressPresentationId = body.presentationId || null;
+
     const session = await auth();
 
     if (!session?.user?.id) {
@@ -30,7 +36,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
     const validation = generateSlidesSchema.safeParse(body);
 
     if (!validation.success) {
@@ -44,6 +49,9 @@ export async function POST(request: NextRequest) {
     const { presentationId, userInput } = validation.data;
     console.log("[generate-slides] Processing for presentation:", presentationId);
     console.log("[generate-slides] User input text length:", userInput.text?.length || 0);
+
+    startProgress(presentationId);
+    updateProgress(presentationId, 1, "Analyzing your content...");
 
     // Verify presentation access
     const presentation = await prisma.presentation.findFirst({
@@ -69,20 +77,23 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[generate-slides] Calling DeepSeek API...");
-    // Analyze content with DeepSeek
+    updateProgress(presentationId, 2, "AI is generating slide structure...");
     const processedContent = await analyzeAndEnhanceContent(userInput);
     console.log("[generate-slides] DeepSeek returned", processedContent.slides?.length || 0, "slides");
 
-    // Generate slides with backgrounds
+    updateProgress(presentationId, 3, "Creating visual elements...");
+
     const slidesData = await Promise.all(
       processedContent.slides.map(async (slideData: ProcessedSlide, index: number) => {
         // Generate background image - try Unsplash first, then Gemini gradient
         let backgroundUrl = null;
         
         // Get image keywords from DeepSeek response or generate from content
-        const imageKeywords = slideData.imageKeywords || 
+        const imageKeywords = slideData.imageKeywords ||
           generateImageKeywords(slideData.title, slideData.mainContent || "");
-        
+
+        updateProgress(presentationId, 4, "Fetching images for each slide...", { currentSlide: index + 1, totalSlides: processedContent.slides?.length });
+
         console.log(`[generate-slides] Slide ${index + 1}: Getting background for "${imageKeywords}"`);
         
         // Try Unsplash first for real photos
@@ -201,6 +212,8 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    updateProgress(presentationId, 5, "Saving slides to database...");
+
     // Delete existing slides and create new ones
     await prisma.slide.deleteMany({
       where: { presentationId },
@@ -235,16 +248,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    completeProgress(presentationId);
+
     return NextResponse.json({
       success: true,
       presentation: updatedPresentation,
     });
   } catch (error) {
     console.error("Error generating slides:", error);
+    const errorMessage = error instanceof Error ? error.message : "Failed to generate slides. Please try again.";
+    if (progressPresentationId) {
+      failProgress(progressPresentationId, errorMessage);
+    }
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to generate slides. Please try again.",
+        error: errorMessage,
       },
       { status: 500 }
     );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -22,6 +22,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingPage } from "@/components/ui/loading";
+import { ProgressIndicator, ProgressStep } from "@/components/ui/progress-indicator";
+import { PROGRESS_STEPS } from "@/lib/progress-tracker";
 import { useDropzone } from "react-dropzone";
 
 export default function NewPresentationPage() {
@@ -38,6 +40,14 @@ export default function NewPresentationPage() {
   const [newLink, setNewLink] = useState("");
   const [slideCount, setSlideCount] = useState<number | undefined>(undefined);
   const [error, setError] = useState("");
+  const [progressStep, setProgressStep] = useState(0);
+  const [progressStatus, setProgressStatus] = useState<'idle' | 'processing' | 'completed' | 'failed'>('idle');
+  const [progressPercentage, setProgressPercentage] = useState(0);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [totalSlides, setTotalSlides] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+  const [presentationId, setPresentationId] = useState<string | null>(null);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -84,6 +94,55 @@ export default function NewPresentationPage() {
     }));
   };
 
+  useEffect(() => {
+    if (!presentationId || !isGenerating) return;
+
+    const eventSource = new EventSource(
+      `/api/ai/generate-slides/progress/${presentationId}`
+    );
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        setProgressStep(data.step);
+        setProgressStatus(data.status);
+        setProgressPercentage(data.percentage || 0);
+        setCurrentSlide(data.currentSlide || 0);
+        setTotalSlides(data.totalSlides || 0);
+
+        if (data.status === 'completed') {
+          setTimeout(() => {
+            router.push(`/editor/${presentationId}`);
+          }, 2000);
+        }
+
+        if (data.status === 'failed') {
+          setErrorMessage(data.error || "An error occurred");
+          setIsGenerating(false);
+        }
+      } catch (e) {
+        console.error("Error parsing progress event:", e);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [presentationId, isGenerating, router]);
+
+  const getStepStatus = (stepNum: number, currentStepNum: number, status: string): ProgressStep['status'] => {
+    if (status === 'failed') return 'failed';
+    if (status === 'completed') return 'completed';
+    if (stepNum < currentStepNum) return 'completed';
+    if (stepNum === currentStepNum) return 'processing';
+    return 'pending';
+  };
+
   const handleGenerate = async () => {
     if (!inputData.text && !inputData.images.length && !inputData.links.length) {
       setError("Please provide some content to generate slides from.");
@@ -91,10 +150,13 @@ export default function NewPresentationPage() {
     }
 
     setIsGenerating(true);
+    setProgressStatus('processing');
+    setProgressStep(1);
     setError("");
+    setErrorMessage("");
+    setRetryCount(prev => prev + 1);
 
     try {
-      // First create a new presentation
       const createResponse = await fetch("/api/presentations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,8 +170,8 @@ export default function NewPresentationPage() {
       }
 
       const presentation = await createResponse.json();
+      setPresentationId(presentation.id);
 
-      // Then generate slides with AI
       const generateResponse = await fetch("/api/ai/generate-slides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -123,13 +185,13 @@ export default function NewPresentationPage() {
       if (!generateResponse.ok) {
         throw new Error("Failed to generate slides");
       }
-
-      // Redirect to editor
-      router.push(`/editor/${presentation.id}`);
     } catch (err) {
       console.error(err);
       setError("Failed to generate presentation. Please try again.");
+      setErrorMessage(err instanceof Error ? err.message : "An error occurred");
       setIsGenerating(false);
+      setProgressStatus('failed');
+      setPresentationId(null);
     }
   };
 
@@ -204,6 +266,39 @@ export default function NewPresentationPage() {
           <div className="mb-6 rounded-lg bg-red-50 p-4 text-red-600 text-center">
             {error}
           </div>
+        )}
+
+        {isGenerating && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg"
+          >
+            <ProgressIndicator
+              steps={PROGRESS_STEPS.map(s => ({
+                ...s,
+                status: getStepStatus(s.step, progressStep, progressStatus)
+              }))}
+              currentStep={progressStep}
+              percentage={progressPercentage}
+              currentSlide={currentSlide}
+              totalSlides={totalSlides}
+              error={errorMessage}
+              retryCount={retryCount}
+            />
+
+            {errorMessage && (
+              <div className="mt-6 text-center">
+                <Button
+                  onClick={handleGenerate}
+                  variant="outline"
+                  disabled={isGenerating}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+          </motion.div>
         )}
 
         {/* Step 1: Add Content */}

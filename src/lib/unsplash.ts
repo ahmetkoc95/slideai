@@ -37,14 +37,18 @@ export async function searchUnsplashPhoto(
   orientation: "landscape" | "portrait" | "squarish" = "landscape"
 ): Promise<string | null> {
   const apiKey = process.env.UNSPLASH_ACCESS_KEY;
-  
+  const MAX_RETRIES = 1;
+
   if (!apiKey) {
     console.warn("[Unsplash] API key not configured, falling back to gradient");
     return null;
   }
 
-  try {
-    console.log("[Unsplash] Searching for:", keywords);
+  let retryCount = 0;
+
+  while (retryCount <= MAX_RETRIES) {
+    try {
+      console.log("[Unsplash] Searching for:", keywords);
     
     // Clean up keywords for better search results
     const cleanKeywords = keywords
@@ -71,6 +75,16 @@ export async function searchUnsplashPhoto(
     );
 
     if (!response.ok) {
+      if (response.status === 429) {
+        console.warn("[Unsplash] Rate limited, using fallback");
+        return null;
+      }
+      if (response.status >= 500 && retryCount < MAX_RETRIES) {
+        console.warn("[Unsplash] Server error, retrying...");
+        retryCount++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
       console.error("[Unsplash] API error:", response.status);
       return null;
     }
@@ -88,10 +102,18 @@ export async function searchUnsplashPhoto(
     // Return the regular size (1080px wide) which is good for slides
     // Add parameters for better slide backgrounds
     return `${photo.urls.regular}&w=1920&h=1080&fit=crop&auto=format`;
-  } catch (error) {
-    console.error("[Unsplash] Error searching photos:", error);
-    return null;
+    } catch (error) {
+      console.error("[Unsplash] Error:", error);
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      return null;
+    }
   }
+
+  return null;
 }
 
 /**
